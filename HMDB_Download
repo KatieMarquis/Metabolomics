@@ -1,9 +1,20 @@
 import requests
+import io
+import os
+import zipfile
 
-#Download appropriate xml file from HMDB website (http://www.hmdb.ca/downloads) 
-file_url = "http://www.hmdb.ca/system/downloads/current/hmdb_metabolites.zip"
-response = requests.get(file_url, stream = True) 
-
-#write file containing metabolite information from the database
-with open("hmdb_metabolites.xml","wb") as file: 
-    file.write(response.content)
+#write function to download appropriate xml file from HMDB website (http://www.hmdb.ca/downloads) 
+def download_file(url,filename):
+    r = requests.get(url, allow_redirects=True)
+    open(filename, 'wb').write(r.content)
+    
+#write function to unzip and delete xml file from HMDB 
+def unzip_and_delete(filename):
+    zip_file = zipfile.ZipFile(filename,'r')
+    zip_file.extractall()
+    zip_file.close()
+    os.remove(filename)
+    
+#run functions
+download_file("http://www.hmdb.ca/system/downloads/current/hmdb_metabolites.zip", 'hmdb_metabolites.zip')
+unzip_and_delete('hmdb_metabolites.zip')
