@@ -1,0 +1,9 @@
+import requests
+
+#Download appropriate xml file from HMDB website (http://www.hmdb.ca/downloads) 
+file_url = "http://www.hmdb.ca/system/downloads/current/hmdb_metabolites.zip"
+response = requests.get(file_url, stream = True) 
+
+#write file containing metabolite information from the database
+with open("hmdb_metabolites.xml","wb") as file: 
+    file.write(response.content)
