@@ -11,7 +11,7 @@ root = tree.getroot()
 context = tree.iter(tag='{http://www.hmdb.ca}metabolite')
   
 #open a file for writing
-csvfile = open('hmdb_metabolites.csv', 'w')
+csvfile = open('hmdb_metabolites.csv', 'wb')
 fieldnames = ['accession', 'name', 'traditional_iupac', 'synonyms', 'smiles', 'pathway_name' ,'smpdb_ID', 'kegg_map_id'] #create column names for csv file
 
 #create the csv file writer object in dictionary format
