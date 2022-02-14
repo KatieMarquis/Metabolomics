@@ -1,0 +1,167 @@
+---
+title: "Metabolome Studies Summary"
+author: "Kaitlin Marquis"
+date: "10/19/2020"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#load required packages
+library(readxl)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(reshape2)
+library(data.table)
+library(writexl)
+
+#define not in operator
+`%!in%` <- Negate(`%in%`)
+```
+
+#Compile data from individual metabolome studies
+```{r metabolomics comp, message = F, warning = F}
+
+#retrive study names
+study_names <- list.files("/home/kmarquis/CVL_Fluid_Metabolomics_Analysis/Studies")
+
+#create empty list
+datalist <- list()
+
+#retrieve data from individual metabolomics studies and add to datalist
+for (study in study_names) {
+  
+  path <- paste0("/home/kmarquis/CVL_Fluid_Metabolomics_Analysis/Studies/", study, "/", study, "_data_summary.xlsx")
+  data <- read_xlsx(path = path, col_names = TRUE) %>%
+    mutate_at(vars("HDC", "Int", "LDC"), as.numeric) %>%
+    select(Study:LDC)
+  datalist[[study]] <- data
+
+}
+
+#combine data together, remove metabolites with unknown names, and prepare rules for search
+lit_data <- rbindlist(datalist) %>%
+  filter(!str_detect(Metabolite, 'unknown')) %>%
+  mutate_at(., "Metabolite", tolower) %>%
+  mutate(name_search = gsub(pattern = " \\(.*\\)", "", Metabolite)) %>%
+  mutate(name_search = gsub(pattern = "\\*", "", name_search)) %>%
+  mutate(name_search = gsub(pattern = "^a_(.*)", 'alpha-\\1', name_search)) %>%
+  mutate(name_search = gsub(pattern = "^alpha-(.*)", '2-\\1', name_search)) %>%
+  mutate(name_search = gsub(pattern = "^a-(.*)", '2-\\1', name_search)) %>%
+  mutate(name_search = gsub(pattern = "_", " ", name_search)) %>%
+  mutate(name_search = gsub(pattern = "isobar:\\s(.*\\D);.*", "\\1", name_search)) %>%
+  mutate(name_search = gsub(pattern = "isobar:\\s(.*\\D), .*", "\\1", name_search)) %>%
+  mutate(name_search = gsub(pattern = " \\[.*\\]", "", name_search)) %>%
+  mutate(name_search = gsub(pattern = "inositol, (.*)", "\\1inositol", name_search)) %>%
+  mutate(name_search= gsub(pattern = "(.*)-p$", "\\1-phosphate", name_search)) %>%
+  mutate(name_search = gsub(pattern = "(^.*)\\s\\d", "\\1", name_search)) %>%
+  mutate(name_search = gsub(pattern = "panthotenic acid", "pantothenic acid", name_search)) %>%
+  group_by(Study, Detection, name_search) %>% 
+  summarise_at(vars(HDC,Int,LDC), .funs = sum) %>% 
+  ungroup(.)
+
+#write master dataframe to file for HMDB metabolite name correction
+write_xlsx(lit_data, 'literature_metabolites.xlsx')
+```
+
+#Search metabolite synonyms from HMDB & retrieve SMILES using python
+```{r python}
+
+#load reticulate library to run python script in R
+library(reticulate)
+
+#required py depending
+py_pack <- c("unicodecsv", "pandas","lxml","openpyxl")
+
+#intstall py dependencies
+for (pack in py_pack) {
+  py_install(pack)
+}
+
+#run script to match HMDB name to identify SMILES
+py_run_file("interface.py")
+
+#load metabolite database 
+metabolite_DB <- read.csv2(file = 'hmdb_metabolites.csv', header = TRUE, stringsAsFactors = F, sep = ",")
+
+#perform matching function 
+process_corrected_names <- function (infile, match_data) {
+  
+  #load data
+  data <- read.csv2(file = infile, header = FALSE, stringsAsFactors = F, sep = ",") %>%
+    rename('traditional_iupac' = V1, 'name_search' = V2)
+    
+  #match names to HMDB database to retrieve SMILES
+  match <- left_join(data, metabolite_DB, by = 'traditional_iupac') %>%
+    select(name_search, traditional_iupac, smiles, inchi, inchikey) %>%
+    distinct(name_search, .keep_all=T) #get rid of duplicated name_search
+  
+  match_study <- right_join(match_data, match, by = 'name_search') 
+  
+  #return values
+  return(match_study)
+}
+
+#output data matched to lit_data
+matched_lit <- process_corrected_names(infile = 'lit_metabolites_key.csv', match_data = lit_data) #file name from interface py output
+
+#manually review unmatched metabolites
+unmatched_lit <- lit_data %>%
+  filter(.$name_search %!in% matched_lit$name_search)
+
+#calculate match rate stats
+paste0(round((nrow(matched_lit)/(nrow(matched_lit) + nrow(unmatched_lit)))*100, 2), ' % of metabolites matched to HMDB SMILES.')
+
+#write datatable to review and edit unmatched metabolites
+DT::datatable(unmatched_lit, editable = 'cell', filter = 'top', extensions = c("Buttons","Scroller"),
+              options = list(pageLength = 25,
+                             dom = 'Bfrtip',
+                             scrollY = 200,
+                             buttons = list(I("colvis"), c('copy', 'csv','excel'))))
+```
+
+
+#Initiate new search using corrected metabolite names
+```{r search2}
+
+#re-upload unmatched literature metabolites
+corrected_unmatched_lit <- read_xlsx(path = 'corrected_unmatched_literature_metabolites.xlsx') %>%
+  rename('previous_name' = name_search, 'name_search' = manual_correction) %>%
+  mutate(name_search = ifelse(grepl(",", name_search) == T, paste0("\"", name_search, "\""), name_search)) %>%
+  filter(is.na(.$source) == T & name_search != 'no match found') %>%
+  mutate(name_search = tolower(name_search))
+
+write_xlsx(corrected_unmatched_lit, 'HMDB_search2.xlsx')
+
+#rerun py script with manually corrected names
+source_python('HMDB_search.py')
+HMDB_search_fun(infile ="HMDB_search2.xlsx" , key_file = 'HMDB_search2_key.csv')
+
+#match names from HMDB with corrected_unmatched_lit
+match2 <- read.csv2(file = "HMDB_search2_key.csv", header = FALSE, stringsAsFactors = F, sep = ",") %>%
+  rename('traditional_iupac' = V1, 'name_search' = V2) %>%
+  left_join(., metabolite_DB, by = 'traditional_iupac') %>%
+  select(name_search, traditional_iupac, smiles, inchi, inchikey) %>%
+  right_join(., corrected_unmatched_lit %>% select(Study, Detection, previous_name, name_search, HDC, LDC, Int)) %>%
+  filter(is.na(smiles) ==F)
+
+#determine match rates
+paste0("The number of unmatched metabolites is: ", length(which(corrected_unmatched_lit$previous_name %!in% match2$previous_name) == T))
+
+#write datatable to review and edit unmatched metabolites
+DT::datatable(match2, editable = 'cell', filter = 'top', extensions = c("Buttons","Scroller"),
+              options = list(pageLength = 25,
+                             dom = 'Bfrtip',
+                             scrollY = 200,
+                             buttons = list(I("colvis"), c('copy', 'csv','excel'))))
+
+#add matched metabolites together
+all_match <- rbind.data.frame(matched_lit, match2 %>% select(-previous_name))
+
+```
