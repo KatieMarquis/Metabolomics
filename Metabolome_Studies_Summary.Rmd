@@ -42,6 +42,12 @@ read_lit_data <- function(x) {
   return(data)
 }
 
+# if you are just loading a single study
+# lit_data <- read_tsv(here("my_single_study.tsv")) %>%
+#   rename(Metabolite = Name)
+# and replace "rbindlist(lapply(paths, read_lit_data))"
+# with "lit_data" on line 52
+
 #combine data together, remove metabolites with unknown names, and prepare rules for search
 lit_data <- rbindlist(lapply(paths, read_lit_data)) %>%
   filter(!str_detect(Metabolite, 'unknown')) %>%
@@ -62,7 +68,7 @@ lit_data <- rbindlist(lapply(paths, read_lit_data)) %>%
   mutate(name_search = str_remove(name_search, "\\?-")) %>%
   mutate(name_search = str_replace(name_search, "\\.alpha\\.", "alpha")) %>%
   mutate(name_search = str_replace(name_search, "\\.beta\\.", "beta")) %>%
-  group_by(Study, Detection, name_search) %>% 
+  group_by(Study, Detection, name_search) %>%  # do not need if single study
   summarise_at(vars(HDC,Int,LDC), .funs = sum) %>% 
   ungroup(.)
 
