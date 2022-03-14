@@ -59,9 +59,20 @@ lit_data <- rbindlist(lapply(paths, read_lit_data)) %>%
   mutate(name_search= gsub(pattern = "(.*)-p$", "\\1-phosphate", name_search)) %>%
   mutate(name_search = gsub(pattern = "(^.*)\\s\\d", "\\1", name_search)) %>%
   mutate(name_search = gsub(pattern = "panthotenic acid", "pantothenic acid", name_search)) %>%
+  mutate(name_search = str_remove(name_search, "\\?-")) %>%
+  mutate(name_search = str_replace(name_search, "\\.alpha\\.", "alpha")) %>%
+  mutate(name_search = str_replace(name_search, "\\.beta\\.", "beta")) %>%
   group_by(Study, Detection, name_search) %>% 
   summarise_at(vars(HDC,Int,LDC), .funs = sum) %>% 
   ungroup(.)
+
+# if you want to remove enantiomer info add these lines above:
+# mutate(name_search = str_remove(name_search, "\\(-\\)-")) %>%
+# mutate(name_search = str_remove(name_search, "\\(\\+\\)-")) %>%
+# mutate(name_search = str_remove(name_search, "\\(.+/-.\\)-")) %>%
+# mutate(name_search = str_remove(name_search, "\\(\\+/-\\)[-]*")) %>%
+# mutate(name_search = str_remove(name_search, "\\(±\\)[-]*")) %>%
+# mutate(name_search = str_remove(name_search, "\\(−\\)-"))
 
 #write master dataframe to file for HMDB metabolite name correction
 write_xlsx(lit_data, 'literature_metabolites.xlsx')
