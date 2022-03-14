@@ -1,7 +1,7 @@
 ---
 title: "Metabolome Studies Summary"
-author: "Kaitlin Marquis"
-date: "10/19/2020"
+author: ""
+date: ""
 output: 
   html_document:
     toc: true
@@ -20,6 +20,8 @@ library(ggplot2)
 library(reshape2)
 library(data.table)
 library(writexl)
+library(readr)
+library(here)
 
 #define not in operator
 `%!in%` <- Negate(`%in%`)
@@ -28,25 +30,20 @@ library(writexl)
 #Compile data from individual metabolome studies
 ```{r metabolomics comp, message = F, warning = F}
 
-#retrive study names
-study_names <- list.files("/home/kmarquis/CVL_Fluid_Metabolomics_Analysis/Studies")
+#retrive study file paths
+paths <- list.files(here("Studies"), recursive = T, full.names = T)
 
-#create empty list
-datalist <- list()
-
-#retrieve data from individual metabolomics studies and add to datalist
-for (study in study_names) {
-  
-  path <- paste0("/home/kmarquis/CVL_Fluid_Metabolomics_Analysis/Studies/", study, "/", study, "_data_summary.xlsx")
-  data <- read_xlsx(path = path, col_names = TRUE) %>%
+#function to read tables
+read_lit_data <- function(x) {
+  study <- unlist(str_split(basename(x), pattern = "_"))[1]
+  data <- read_xlsx(path = x, col_names = T) %>%
     mutate_at(vars("HDC", "Int", "LDC"), as.numeric) %>%
     select(Study:LDC)
-  datalist[[study]] <- data
-
+  return(data)
 }
 
 #combine data together, remove metabolites with unknown names, and prepare rules for search
-lit_data <- rbindlist(datalist) %>%
+lit_data <- rbindlist(lapply(paths, read_lit_data)) %>%
   filter(!str_detect(Metabolite, 'unknown')) %>%
   mutate_at(., "Metabolite", tolower) %>%
   mutate(name_search = gsub(pattern = " \\(.*\\)", "", Metabolite)) %>%
