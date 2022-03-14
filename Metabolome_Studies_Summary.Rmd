@@ -84,16 +84,22 @@ write_xlsx(lit_data, 'literature_metabolites.xlsx')
 #load reticulate library to run python script in R
 library(reticulate)
 
+# use a conda environment
+use_condaenv(condaenv = "arrr", required = TRUE)
+
 #required py depending
-#py_pack <- c("unicodecsv", "pandas","lxml","openpyxl")
+#py_pack <- c("unicodecsv", "pandas","lxml","openpyxl", "xlrd")
 
 #intstall py dependencies
-#for (pack in py_pack) {
- # py_install(pack)
-#}
+# conda_install(envname = "arrr", packages = py_pack)
 
-#run script to match HMDB name to identify SMILES
-py_run_file('HMDB_interface.py')
+# download hmdb_metabolites.xml from here: https://hmdb.ca/system/downloads/current/hmdb_metabolites.zip
+
+#run script to convert hmdb_metabolites.xml to hmdb_metabolites.csv
+py_run_file('HMDB_convert.py')
+
+#run script to match metabolites in your lit_data to metabolites in hmdb
+py_run_file('HMDB_match.py')
 
 #load metabolite database 
 metabolite_DB <- read.csv2(file = 'hmdb_metabolites.csv', header = TRUE, stringsAsFactors = F, sep = ",")
