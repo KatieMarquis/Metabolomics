@@ -1,7 +1,7 @@
 ---
 title: "Metabolome Studies Summary"
-author: "Kaitlin Marquis"
-date: "10/19/2020"
+author: ""
+date: ""
 output: 
   html_document:
     toc: true
@@ -20,6 +20,8 @@ library(ggplot2)
 library(reshape2)
 library(data.table)
 library(writexl)
+library(readr)
+library(here)
 
 #define not in operator
 `%!in%` <- Negate(`%in%`)
@@ -28,25 +30,26 @@ library(writexl)
 #Compile data from individual metabolome studies
 ```{r metabolomics comp, message = F, warning = F}
 
-#retrive study names
-study_names <- list.files("/home/kmarquis/CVL_Fluid_Metabolomics_Analysis/Studies")
+#retrive study file paths
+paths <- list.files(here("Studies"), recursive = T, full.names = T)
 
-#create empty list
-datalist <- list()
-
-#retrieve data from individual metabolomics studies and add to datalist
-for (study in study_names) {
-  
-  path <- paste0("/home/kmarquis/CVL_Fluid_Metabolomics_Analysis/Studies/", study, "/", study, "_data_summary.xlsx")
-  data <- read_xlsx(path = path, col_names = TRUE) %>%
+#function to read tables
+read_lit_data <- function(x) {
+  study <- unlist(str_split(basename(x), pattern = "_"))[1]
+  data <- read_xlsx(path = x, col_names = T) %>%
     mutate_at(vars("HDC", "Int", "LDC"), as.numeric) %>%
     select(Study:LDC)
-  datalist[[study]] <- data
-
+  return(data)
 }
 
+# if you are just loading a single study
+# lit_data <- read_tsv(here("my_single_study.tsv")) %>%
+#   rename(Metabolite = Name)
+# and replace "rbindlist(lapply(paths, read_lit_data))"
+# with "lit_data" on line 52
+
 #combine data together, remove metabolites with unknown names, and prepare rules for search
-lit_data <- rbindlist(datalist) %>%
+lit_data <- rbindlist(lapply(paths, read_lit_data)) %>%
   filter(!str_detect(Metabolite, 'unknown')) %>%
   mutate_at(., "Metabolite", tolower) %>%
   mutate(name_search = gsub(pattern = " \\(.*\\)", "", Metabolite)) %>%
@@ -62,9 +65,20 @@ lit_data <- rbindlist(datalist) %>%
   mutate(name_search= gsub(pattern = "(.*)-p$", "\\1-phosphate", name_search)) %>%
   mutate(name_search = gsub(pattern = "(^.*)\\s\\d", "\\1", name_search)) %>%
   mutate(name_search = gsub(pattern = "panthotenic acid", "pantothenic acid", name_search)) %>%
-  group_by(Study, Detection, name_search) %>% 
+  mutate(name_search = str_remove(name_search, "\\?-")) %>%
+  mutate(name_search = str_replace(name_search, "\\.alpha\\.", "alpha")) %>%
+  mutate(name_search = str_replace(name_search, "\\.beta\\.", "beta")) %>%
+  group_by(Study, Detection, name_search) %>%  # do not need if single study
   summarise_at(vars(HDC,Int,LDC), .funs = sum) %>% 
   ungroup(.)
+
+# if you want to remove enantiomer info add these lines above:
+# mutate(name_search = str_remove(name_search, "\\(-\\)-")) %>%
+# mutate(name_search = str_remove(name_search, "\\(\\+\\)-")) %>%
+# mutate(name_search = str_remove(name_search, "\\(.+/-.\\)-")) %>%
+# mutate(name_search = str_remove(name_search, "\\(\\+/-\\)[-]*")) %>%
+# mutate(name_search = str_remove(name_search, "\\(±\\)[-]*")) %>%
+# mutate(name_search = str_remove(name_search, "\\(−\\)-"))
 
 #write master dataframe to file for HMDB metabolite name correction
 write_xlsx(lit_data, 'literature_metabolites.xlsx')
@@ -76,16 +90,22 @@ write_xlsx(lit_data, 'literature_metabolites.xlsx')
 #load reticulate library to run python script in R
 library(reticulate)
 
+# use a conda environment
+use_condaenv(condaenv = "arrr", required = TRUE)
+
 #required py depending
-#py_pack <- c("unicodecsv", "pandas","lxml","openpyxl")
+#py_pack <- c("unicodecsv", "pandas","lxml","openpyxl", "xlrd")
 
 #intstall py dependencies
-#for (pack in py_pack) {
- # py_install(pack)
-#}
+# conda_install(envname = "arrr", packages = py_pack)
 
-#run script to match HMDB name to identify SMILES
-py_run_file('HMDB_interface.py')
+# download hmdb_metabolites.xml from here: https://hmdb.ca/system/downloads/current/hmdb_metabolites.zip
+
+#run script to convert hmdb_metabolites.xml to hmdb_metabolites.csv
+py_run_file('HMDB_convert.py')
+
+#run script to match metabolites in your lit_data to metabolites in hmdb
+py_run_file('HMDB_match.py')
 
 #load metabolite database 
 metabolite_DB <- read.csv2(file = 'hmdb_metabolites.csv', header = TRUE, stringsAsFactors = F, sep = ",")
