@@ -4,6 +4,7 @@
 import unicodecsv as csv
 from io import BytesIO
 from lxml import etree as ET
+import datatable as dt
 from functools import reduce
 
 with open('/Users/danielsg/hmdb_metabolites.xml', 'r') as xml:
